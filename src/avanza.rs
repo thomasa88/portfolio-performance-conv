@@ -133,23 +133,23 @@ struct PortfolioTransaction {
     #[serde(rename = "Type")]
     type_: PortfolioType,
     // Does this make sense? Avanza provides no value when force-moving defaulted stocks.
-    // #[serde(serialize_with = "round_dec_from_dec")]
+    #[serde(serialize_with = "round_dec")]
     value: Option<Decimal>,
     #[serde(rename = "Transaction Currency")]
     transaction_currency: Currency,
     #[serde(rename = "Gross Amount")]
-    // #[serde(serialize_with = "round_dec_from_dec")]
+    #[serde(serialize_with = "round_dec")]
     gross_amount: Option<Decimal>,
     #[serde(rename = "Currency Gross Amount")]
     currency_gross_amount: Option<Currency>,
     #[serde(rename = "Exchange Rate")]
-    // #[serde(serialize_with = "round_dec_from_dec")]
+    #[serde(serialize_with = "round_dec")]
     exchange_rate: Option<Decimal>,
-    // #[serde(serialize_with = "round_dec_from_dec")]
+    #[serde(serialize_with = "round_dec")]
     fees: Option<Decimal>,
-    // #[serde(serialize_with = "round_dec_from_dec")]
+    #[serde(serialize_with = "round_dec")]
     taxes: Option<Decimal>,
-    // #[serde(serialize_with = "round_dec_from_dec")]
+    #[serde(serialize_with = "round_dec")]
     shares: Option<Decimal>,
     #[serde(rename = "ISIN")]
     isin: Option<String>,
@@ -162,15 +162,21 @@ struct PortfolioTransaction {
     note: Option<String>,
 }
 
-// fn round_dec_from_dec<S>(serializer: S, value: Option<Decimal>) -> Result<S, S::Error>
-// where
-//     S: Serializer,
-// {
-//     // Ok(value.round_dp(4).into())
-//     // String::serialize(value.round_dp(4), serializer)
-//     // Ok(value.map(|v| v.serialize()))
-//     Decimal::serialize(value.as_ref().unwrap())
-// }
+fn round_dec<S>(value: &Option<Decimal>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // Ok(value.round_dp(4).into())
+    // String::serialize(value.round_dp(4), serializer)
+    // Ok(value.map(|v| v.serialize()))
+    // Decimal::serialize(value.as_ref().unwrap())
+    // serializer.serialize_str(&value.unwrap().to_string())
+    // let value = dec!(0);
+    // Decimal::serialize(&value, serializer)
+    // Serialize::serialize::<Decimal>(value, serializer)
+    // Serialize::serialize(&value.map(|v| v.round_dp(4)), serializer)
+    Serialize::serialize(&value.map(|v| v), serializer)
+}
 
 // #[derive(Debug, Serialize)]
 // #[serde(tag = "Type", rename_all = "PascalCase")]
