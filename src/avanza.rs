@@ -1,31 +1,9 @@
-use std::ops::Deref;
-
 use rust_decimal::{Decimal, dec, prelude::Zero};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::Deserialize;
 
+use crate::pp;
+use crate::types::{Currency, dec_from_swe_num_opt};
 use crate::yahoo_symbol;
-
-// #[derive(Debug, Deserialize)]
-// struct SweNum(String);
-
-// #[derive(Debug, Serialize)]
-// struct IntNum(String);
-
-// impl From<SweNum> for IntNum {
-//     fn from(value: SweNum) -> Self {
-//         IntNum(value.0.replacen(",", ".", 1))
-//     }
-// }
-
-// impl TryFrom<SweNum> for Decimal {
-//     type Error = rust_decimal::Error;
-//     fn try_from(value: SweNum) -> Result<Self, Self::Error> {
-//         Decimal::from_str_exact(&IntNum::from(value).0)
-//     }
-// }
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Currency(String);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -55,206 +33,15 @@ struct AvanzaTransaction {
     resultat: Option<Decimal>,
 }
 
-#[derive(Debug)]
-struct CommaDec(Decimal);
-
-impl<'de> serde::Deserialize<'de> for CommaDec {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::de::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(CommaDec(
-            Decimal::from_str_exact(&s).map_err(serde::de::Error::custom)?,
-        ))
-    }
-}
-
-impl Deref for CommaDec {
-    type Target = Decimal;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<CommaDec> for Decimal {
-    fn from(value: CommaDec) -> Self {
-        value.0
-    }
-}
-
-fn dec_from_swe_num_opt<'de, D>(deserializer: D) -> Result<Option<Decimal>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    if s.is_empty() {
-        return Ok(None);
-    }
-    let s = s.replacen(",", ".", 1);
-    Ok(Some(
-        Decimal::from_str_exact(&s).map_err(serde::de::Error::custom)?,
-    ))
-}
-
-#[allow(dead_code)]
-fn dec_from_swe_num<'de, D>(deserializer: D) -> Result<Decimal, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    dec_from_swe_num_opt(deserializer)
-        .and_then(|r| r.ok_or(serde::de::Error::custom("Empty number")))
-}
-
 #[derive(Debug, Deserialize, PartialEq)]
 enum AvanzaType {
-    // #[serde(rename = "Köp")]
     Köp,
-    // #[serde(rename = "Sälj")]
     Sälj,
-    // #[serde(rename = "Värdepappersöverföring")]
     Värdepappersöverföring,
-    // #[serde(rename = "Ränta")]
     Ränta,
-    // #[serde(rename = "Insättning")]
     Insättning,
-    // #[serde(rename = "Uttag")]
     Uttag,
-    // #[serde(rename = "Övrigt")]
     Övrigt,
-}
-
-enum PpTransaction {
-    Portfolio(PortfolioTransaction),
-    Account(AccountTransaction),
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase")]
-struct PortfolioTransaction {
-    date: String,
-    #[serde(rename = "Securities Account")]
-    securities_account: Option<String>,
-    #[serde(rename = "Cash Account")]
-    cash_account: Option<String>,
-    #[serde(rename = "Type")]
-    type_: PortfolioType,
-    #[serde(serialize_with = "round_dec")]
-    value: Decimal,
-    #[serde(rename = "Transaction Currency")]
-    transaction_currency: Currency,
-    #[serde(rename = "Gross Amount")]
-    #[serde(serialize_with = "round_dec_opt")]
-    gross_amount: Option<Decimal>,
-    // This is the currency of the gross amount
-    #[serde(rename = "Currency Gross Amount")]
-    currency_gross_amount: Option<Currency>,
-    #[serde(rename = "Exchange Rate")]
-    #[serde(serialize_with = "round_dec_opt")]
-    exchange_rate: Option<Decimal>,
-    #[serde(serialize_with = "round_dec_opt")]
-    fees: Option<Decimal>,
-    #[serde(serialize_with = "round_dec_opt")]
-    taxes: Option<Decimal>,
-    #[serde(serialize_with = "round_dec_opt")]
-    shares: Option<Decimal>,
-    #[serde(rename = "ISIN")]
-    isin: Option<String>,
-    #[serde(rename = "WKN")]
-    wkn: Option<String>,
-    #[serde(rename = "Ticker Symbol")]
-    ticker_symbol: Option<String>,
-    #[serde(rename = "Security Name")]
-    security_name: Option<String>,
-    note: Option<String>,
-}
-
-fn round_dec_opt<S>(value: &Option<Decimal>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    // Serialize::serialize(&value.map(|v| v.round_dp(4)), serializer)
-    Serialize::serialize(&value.map(|v| v), serializer)
-}
-
-fn round_dec<S>(value: &Decimal, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    // round_dp(4)
-    Serialize::serialize(&value, serializer)
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize)]
-enum PortfolioType {
-    Buy,
-    Sell,
-    #[serde(rename = "Delivery (Inbound)")]
-    DeliveryInbound,
-    #[serde(rename = "Delivery (Outbound)")]
-    DeliveryOutbound,
-    #[serde(rename = "Transfer (Inbound)")]
-    TransferInbound,
-    #[serde(rename = "Transfer (Outbound)")]
-    TransferOutbound,
-}
-
-#[derive(Debug, Serialize)]
-struct AccountTransaction {
-    date: String,
-    #[serde(rename = "Cash Account")]
-    cash_account: String,
-    #[serde(rename = "Securities Account")]
-    securities_account: Option<String>,
-    #[serde(rename = "Type")]
-    type_: AccountType,
-    value: Decimal,
-    #[serde(rename = "Transaction Currency")]
-    transaction_currency: Currency,
-    // #[serde(rename = "Gross Amount")]
-    // gross_amount: Option<Decimal>,
-    // This is the currency of the gross amount
-    // #[serde(rename = "Currency Gross Amount")]
-    // currency_gross_amount: Option<Currency>,
-    // #[serde(rename = "Exchange Rate")]
-    // exchange_rate: Option<Decimal>,
-    // fees: Option<Decimal>,
-    // taxes: Option<Decimal>,
-    // shares: Option<Decimal>,
-    // #[serde(rename = "ISIN")]
-    // isin: Option<String>,
-    // #[serde(rename = "WKN")]
-    // wkn: Option<String>,
-    // #[serde(rename = "Ticker Symbol")]
-    // ticker_symbol: Option<String>,
-    // #[serde(rename = "Security Name")]
-    // security_name: Option<String>,
-    note: Option<String>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize)]
-enum AccountType {
-    Buy,
-    Deposit,
-    Dividend,
-    Fees,
-    #[serde(rename = "Fees Refund")]
-    FeesRefund,
-    Interest,
-    #[serde(rename = "Interest Charge")]
-    InterestCharge,
-    Removal,
-    Sell,
-    #[serde(rename = "Tax Refund")]
-    TaxRefund,
-    Taxes,
-    #[serde(rename = "Transfer (Inbound)")]
-    TransferInbound,
-    #[serde(rename = "Transfer (Outbound)")]
-    TransferOutbound,
 }
 
 pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
@@ -289,18 +76,15 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
         }
         if let Some(pp) = match line.typ_av_transaktion {
             AvanzaType::Köp | AvanzaType::Sälj => {
-                let exch: Option<Decimal> = match line.valutakurs {
-                    Some(v) => Some((dec!(1.0) / v).round_dp(4)),
-                    None => None,
-                };
-                Some(PpTransaction::Portfolio(PortfolioTransaction {
+                let exch: Option<Decimal> = line.valutakurs.map(|v| (dec!(1.0) / v).round_dp(4));
+                Some(pp::Transaction::Portfolio(pp::PortfolioTransaction {
                     date: line.datum,
                     securities_account: Some(line.konto.clone()),
                     cash_account: Some(line.konto),
                     type_: if line.typ_av_transaktion == AvanzaType::Köp {
-                        PortfolioType::Buy
+                        pp::PortfolioType::Buy
                     } else {
-                        PortfolioType::Sell
+                        pp::PortfolioType::Sell
                     },
                     value: -line.belopp.unwrap(),
                     transaction_currency: line.transaktionsvaluta,
@@ -313,21 +97,21 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     isin: line.isin,
                     wkn: None,
                     ticker_symbol: y_symbol,
-                    security_name: security_name,
+                    security_name,
                     note: None,
                 }))
             }
             AvanzaType::Värdepappersöverföring => {
                 let type_ = if line.antal.as_ref().unwrap().is_sign_negative() {
-                    PortfolioType::DeliveryOutbound
+                    pp::PortfolioType::DeliveryOutbound
                 } else {
-                    PortfolioType::DeliveryInbound
+                    pp::PortfolioType::DeliveryInbound
                 };
-                Some(PpTransaction::Portfolio(PortfolioTransaction {
+                Some(pp::Transaction::Portfolio(pp::PortfolioTransaction {
                     date: line.datum.clone(),
                     securities_account: Some(line.konto),
                     cash_account: None,
-                    type_: type_,
+                    type_,
                     value: if let (Some(antal), Some(kurs)) = (line.antal, line.kurs) {
                         antal * kurs
                     } else {
@@ -348,22 +132,22 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     isin: line.isin,
                     wkn: None,
                     ticker_symbol: y_symbol,
-                    security_name: security_name,
+                    security_name,
                     note: line.vardepapper_beskrivning,
                 }))
             }
             AvanzaType::Övrigt if line.antal.is_some() => {
                 // Could be sell/move of defaulted stocks.
                 let type_ = if line.antal.as_ref().unwrap().is_sign_negative() {
-                    PortfolioType::DeliveryOutbound
+                    pp::PortfolioType::DeliveryOutbound
                 } else {
-                    PortfolioType::DeliveryInbound
+                    pp::PortfolioType::DeliveryInbound
                 };
-                Some(PpTransaction::Portfolio(PortfolioTransaction {
+                Some(pp::Transaction::Portfolio(pp::PortfolioTransaction {
                     date: line.datum.clone(),
                     securities_account: Some(line.konto),
                     cash_account: None,
-                    type_: type_,
+                    type_,
                     value: if let (Some(antal), Some(kurs)) = (line.antal, line.kurs) {
                         antal * kurs
                     } else {
@@ -384,20 +168,20 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     isin: line.isin,
                     wkn: None,
                     ticker_symbol: y_symbol,
-                    security_name: security_name,
+                    security_name,
                     note: line.vardepapper_beskrivning,
                 }))
             }
             AvanzaType::Övrigt if line.antal.is_none() => {
                 // Could be transfer of money to the credit account. Could it be taxes?
-                Some(PpTransaction::Account(AccountTransaction {
+                Some(pp::Transaction::Account(pp::AccountTransaction {
                     date: line.datum,
                     cash_account: line.konto,
                     securities_account: None,
                     type_: if line.belopp.unwrap_or_default() <= Decimal::zero() {
-                        AccountType::Removal
+                        pp::AccountType::Removal
                     } else {
-                        AccountType::Deposit
+                        pp::AccountType::Deposit
                     },
                     value: line.belopp.unwrap(),
                     transaction_currency: line.transaktionsvaluta,
@@ -408,28 +192,28 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                 panic!("Should not get here");
             }
             AvanzaType::Insättning | AvanzaType::Uttag => {
-                Some(PpTransaction::Account(AccountTransaction {
+                Some(pp::Transaction::Account(pp::AccountTransaction {
                     date: line.datum,
                     cash_account: line.konto,
                     securities_account: None,
                     type_: if line.typ_av_transaktion == AvanzaType::Insättning {
-                        AccountType::Deposit
+                        pp::AccountType::Deposit
                     } else {
-                        AccountType::Removal
+                        pp::AccountType::Removal
                     },
                     value: line.belopp.unwrap(),
                     transaction_currency: line.transaktionsvaluta,
                     note: line.vardepapper_beskrivning,
                 }))
             }
-            AvanzaType::Ränta => Some(PpTransaction::Account(AccountTransaction {
+            AvanzaType::Ränta => Some(pp::Transaction::Account(pp::AccountTransaction {
                 date: line.datum,
                 cash_account: line.konto,
                 securities_account: None,
                 type_: if line.belopp.unwrap_or_default() <= Decimal::zero() {
-                    AccountType::InterestCharge
+                    pp::AccountType::InterestCharge
                 } else {
-                    AccountType::Interest
+                    pp::AccountType::Interest
                 },
                 value: line.belopp.unwrap(),
                 transaction_currency: line.transaktionsvaluta,
@@ -437,10 +221,10 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
             })),
         } {
             match pp {
-                PpTransaction::Portfolio(portfolio_transaction) => {
+                pp::Transaction::Portfolio(portfolio_transaction) => {
                     portfolio_transactions.serialize(portfolio_transaction)?;
                 }
-                PpTransaction::Account(account_transaction) => {
+                pp::Transaction::Account(account_transaction) => {
                     account_transactions.serialize(account_transaction)?;
                 }
             }
@@ -449,20 +233,9 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
     Ok(())
 }
 
-fn unhandled(line: &AvanzaTransaction) {
-    println!(
-        "Unhandled transaction: {}, {}, {:?}, {}",
-        line.datum,
-        line.konto,
-        line.typ_av_transaktion,
-        line.vardepapper_beskrivning.clone().unwrap_or_default()
-    );
-    // println!("{:?}", line);
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_avanza() {

@@ -1,13 +1,12 @@
 use std::{
     cell::{Cell, Ref, RefCell},
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::File,
     io::{BufReader, BufWriter},
     time::Duration,
 };
 
-use anyhow::{anyhow, bail};
-use chrono::{TimeZone, Utc};
+use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -47,8 +46,8 @@ struct YahooResponse {
 struct YahooQuote {
     /// Often cut off or has `"` at the end
     shortname: String,
-    /// Tend to miss umlaut characters
-    longname: Option<String>,
+    // /// Tend to miss umlaut characters
+    // longname: Option<String>,
     exchange: String,
     symbol: String,
 }
@@ -58,7 +57,7 @@ impl Yahoo {
         let cache = RefCell::new(read_cache());
         Yahoo {
             last_lookup: Cell::new(None),
-            cache: cache,
+            cache,
         }
     }
 }
@@ -152,7 +151,7 @@ mod tests {
         assert_eq!(sec[0].symbol, "0P0001Q6FC.ST");
         assert_eq!(sec[0].exchange, "STO");
         drop(sec);
-        
+
         let sec = y.isin_to_symbols("SE0010296574").unwrap();
         assert_eq!(sec[0].symbol, "ETHEREUM-XBT.ST");
         assert_eq!(sec[0].exchange, "STO");

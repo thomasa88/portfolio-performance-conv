@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod types;
+mod pp;
 mod avanza;
 mod yahoo_symbol;
 
