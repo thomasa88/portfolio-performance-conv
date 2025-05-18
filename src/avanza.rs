@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use rust_decimal::{Decimal, dec};
+use rust_decimal::{Decimal, dec, prelude::Zero};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::yahoo_symbol;
@@ -125,6 +125,11 @@ enum AvanzaType {
     Övrigt,
 }
 
+enum PpTransaction {
+    Portfolio(PortfolioTransaction),
+    Account(AccountTransaction),
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct PortfolioTransaction {
@@ -142,6 +147,7 @@ struct PortfolioTransaction {
     #[serde(rename = "Gross Amount")]
     #[serde(serialize_with = "round_dec_opt")]
     gross_amount: Option<Decimal>,
+    // This is the currency of the gross amount
     #[serde(rename = "Currency Gross Amount")]
     currency_gross_amount: Option<Currency>,
     #[serde(rename = "Exchange Rate")]
@@ -180,6 +186,7 @@ where
     Serialize::serialize(&value, serializer)
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 enum PortfolioType {
     Buy,
@@ -195,44 +202,72 @@ enum PortfolioType {
 }
 
 #[derive(Debug, Serialize)]
-enum AccountTransaction {
-    Interest {
-        #[serde(rename = "Cash Account")]
-        cash_account: String,
-        date: String,
-        // #[serde(rename = "Type")]
-        // type_: PortfolioType,
-        value: String,
-        #[serde(rename = "Transaction Currency")]
-        transaction_currency: String,
-        #[serde(rename = "Gross Amount")]
-        gross_amount: Option<String>,
-        #[serde(rename = "Currency Gross Amount")]
-        currency_gross_amount: Option<String>,
-        #[serde(rename = "Exchange Rate")]
-        exchange_rate: Option<String>,
-        fees: Option<String>,
-        taxes: Option<String>,
-        shares: Option<String>,
-        #[serde(rename = "ISIN")]
-        isin: Option<String>,
-        #[serde(rename = "WKN")]
-        wkn: Option<String>,
-        #[serde(rename = "Ticker Symbol")]
-        ticker_symbol: Option<String>,
-        #[serde(rename = "Security Name")]
-        security_name: Option<String>,
-        note: Option<String>,
-    },
+struct AccountTransaction {
+    date: String,
+    #[serde(rename = "Cash Account")]
+    cash_account: String,
+    #[serde(rename = "Securities Account")]
+    securities_account: Option<String>,
+    #[serde(rename = "Type")]
+    type_: AccountType,
+    value: Decimal,
+    #[serde(rename = "Transaction Currency")]
+    transaction_currency: Currency,
+    // #[serde(rename = "Gross Amount")]
+    // gross_amount: Option<Decimal>,
+    // This is the currency of the gross amount
+    // #[serde(rename = "Currency Gross Amount")]
+    // currency_gross_amount: Option<Currency>,
+    // #[serde(rename = "Exchange Rate")]
+    // exchange_rate: Option<Decimal>,
+    // fees: Option<Decimal>,
+    // taxes: Option<Decimal>,
+    // shares: Option<Decimal>,
+    // #[serde(rename = "ISIN")]
+    // isin: Option<String>,
+    // #[serde(rename = "WKN")]
+    // wkn: Option<String>,
+    // #[serde(rename = "Ticker Symbol")]
+    // ticker_symbol: Option<String>,
+    // #[serde(rename = "Security Name")]
+    // security_name: Option<String>,
+    note: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize)]
+enum AccountType {
+    Buy,
+    Deposit,
+    Dividend,
+    Fees,
+    #[serde(rename = "Fees Refund")]
+    FeesRefund,
+    Interest,
+    #[serde(rename = "Interest Charge")]
+    InterestCharge,
+    Removal,
+    Sell,
+    #[serde(rename = "Tax Refund")]
+    TaxRefund,
+    Taxes,
+    #[serde(rename = "Transfer (Inbound)")]
+    TransferInbound,
+    #[serde(rename = "Transfer (Outbound)")]
+    TransferOutbound,
 }
 
 pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
     let yahoo = yahoo_symbol::Yahoo::new();
     let mut reader = csv::ReaderBuilder::new().delimiter(b';').from_path(input)?;
-    let mut writer = csv::WriterBuilder::new()
+    // Handles securities accounts
+    let mut portfolio_transactions = csv::WriterBuilder::new()
         .delimiter(b',')
         .from_path(output)?;
-    // let mut types = std::collections::HashSet::new();
+    // Handles deposit accounts
+    let mut account_transactions = csv::WriterBuilder::new()
+        .delimiter(b',')
+        .from_path(output.with_extension("pp-a.csv"))?;
     for line in reader.deserialize() {
         let line: AvanzaTransaction = line?;
 
@@ -255,10 +290,10 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
         if let Some(pp) = match line.typ_av_transaktion {
             AvanzaType::Köp | AvanzaType::Sälj => {
                 let exch: Option<Decimal> = match line.valutakurs {
-                    Some(v) => Some((dec!(1.0) / (Decimal::try_from(v)?)).round_dp(4)),
+                    Some(v) => Some((dec!(1.0) / v).round_dp(4)),
                     None => None,
                 };
-                Some(PortfolioTransaction {
+                Some(PpTransaction::Portfolio(PortfolioTransaction {
                     date: line.datum,
                     securities_account: Some(line.konto.clone()),
                     cash_account: Some(line.konto),
@@ -280,7 +315,7 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     ticker_symbol: y_symbol,
                     security_name: security_name,
                     note: None,
-                })
+                }))
             }
             AvanzaType::Värdepappersöverföring => {
                 let type_ = if line.antal.as_ref().unwrap().is_sign_negative() {
@@ -288,7 +323,7 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                 } else {
                     PortfolioType::DeliveryInbound
                 };
-                Some(PortfolioTransaction {
+                Some(PpTransaction::Portfolio(PortfolioTransaction {
                     date: line.datum.clone(),
                     securities_account: Some(line.konto),
                     cash_account: None,
@@ -315,7 +350,7 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     ticker_symbol: y_symbol,
                     security_name: security_name,
                     note: line.vardepapper_beskrivning,
-                })
+                }))
             }
             AvanzaType::Övrigt if line.antal.is_some() => {
                 // Could be sell/move of defaulted stocks.
@@ -324,7 +359,7 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                 } else {
                     PortfolioType::DeliveryInbound
                 };
-                Some(PortfolioTransaction {
+                Some(PpTransaction::Portfolio(PortfolioTransaction {
                     date: line.datum.clone(),
                     securities_account: Some(line.konto),
                     cash_account: None,
@@ -351,23 +386,78 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     ticker_symbol: y_symbol,
                     security_name: security_name,
                     note: line.vardepapper_beskrivning,
-                })
+                }))
             }
             AvanzaType::Övrigt if line.antal.is_none() => {
-                // Could be taxes or transfer of money to credit account.
-                None
+                // Could be transfer of money to the credit account. Could it be taxes?
+                Some(PpTransaction::Account(AccountTransaction {
+                    date: line.datum,
+                    cash_account: line.konto,
+                    securities_account: None,
+                    type_: if line.belopp.unwrap_or_default() <= Decimal::zero() {
+                        AccountType::Removal
+                    } else {
+                        AccountType::Deposit
+                    },
+                    value: line.belopp.unwrap(),
+                    transaction_currency: line.transaktionsvaluta,
+                    note: line.vardepapper_beskrivning,
+                }))
             }
             AvanzaType::Övrigt => {
                 panic!("Should not get here");
             }
-            AvanzaType::Ränta => None,
-            AvanzaType::Insättning => None,
-            AvanzaType::Uttag => None,
+            AvanzaType::Insättning | AvanzaType::Uttag => {
+                Some(PpTransaction::Account(AccountTransaction {
+                    date: line.datum,
+                    cash_account: line.konto,
+                    securities_account: None,
+                    type_: if line.typ_av_transaktion == AvanzaType::Insättning {
+                        AccountType::Deposit
+                    } else {
+                        AccountType::Removal
+                    },
+                    value: line.belopp.unwrap(),
+                    transaction_currency: line.transaktionsvaluta,
+                    note: line.vardepapper_beskrivning,
+                }))
+            }
+            AvanzaType::Ränta => Some(PpTransaction::Account(AccountTransaction {
+                date: line.datum,
+                cash_account: line.konto,
+                securities_account: None,
+                type_: if line.belopp.unwrap_or_default() <= Decimal::zero() {
+                    AccountType::InterestCharge
+                } else {
+                    AccountType::Interest
+                },
+                value: line.belopp.unwrap(),
+                transaction_currency: line.transaktionsvaluta,
+                note: line.vardepapper_beskrivning,
+            })),
         } {
-            writer.serialize(pp)?;
+            match pp {
+                PpTransaction::Portfolio(portfolio_transaction) => {
+                    portfolio_transactions.serialize(portfolio_transaction)?;
+                }
+                PpTransaction::Account(account_transaction) => {
+                    account_transactions.serialize(account_transaction)?;
+                }
+            }
         }
     }
     Ok(())
+}
+
+fn unhandled(line: &AvanzaTransaction) {
+    println!(
+        "Unhandled transaction: {}, {}, {:?}, {}",
+        line.datum,
+        line.konto,
+        line.typ_av_transaktion,
+        line.vardepapper_beskrivning.clone().unwrap_or_default()
+    );
+    // println!("{:?}", line);
 }
 
 #[cfg(test)]

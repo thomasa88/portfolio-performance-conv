@@ -132,7 +132,7 @@ fn fetch_securities(isin: &str) -> anyhow::Result<IsinLookup> {
 fn read_cache() -> Cache {
     File::open(CACHE_FILENAME)
         .map(|f| serde_json::from_reader(BufReader::new(f)).expect("Bad cache format"))
-        .unwrap_or(Cache::default())
+        .unwrap_or_default()
 }
 
 fn write_cache(cache: &Cache) {
