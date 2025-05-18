@@ -3,6 +3,8 @@ use std::ops::Deref;
 use rust_decimal::{Decimal, dec};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::yahoo_symbol;
+
 // #[derive(Debug, Deserialize)]
 // struct SweNum(String);
 
@@ -48,7 +50,7 @@ struct AvanzaTransaction {
     valutakurs: Option<Decimal>,
     instrumentvaluta: Currency,
     #[serde(rename = "ISIN")]
-    isin: String,
+    isin: Option<String>,
     #[serde(deserialize_with = "dec_from_swe_num_opt")]
     resultat: Option<Decimal>,
 }
@@ -96,6 +98,7 @@ where
     ))
 }
 
+#[allow(dead_code)]
 fn dec_from_swe_num<'de, D>(deserializer: D) -> Result<Decimal, D::Error>
 where
     D: Deserializer<'de>,
@@ -132,24 +135,23 @@ struct PortfolioTransaction {
     cash_account: Option<String>,
     #[serde(rename = "Type")]
     type_: PortfolioType,
-    // Does this make sense? Avanza provides no value when force-moving defaulted stocks.
     #[serde(serialize_with = "round_dec")]
-    value: Option<Decimal>,
+    value: Decimal,
     #[serde(rename = "Transaction Currency")]
     transaction_currency: Currency,
     #[serde(rename = "Gross Amount")]
-    #[serde(serialize_with = "round_dec")]
+    #[serde(serialize_with = "round_dec_opt")]
     gross_amount: Option<Decimal>,
     #[serde(rename = "Currency Gross Amount")]
     currency_gross_amount: Option<Currency>,
     #[serde(rename = "Exchange Rate")]
-    #[serde(serialize_with = "round_dec")]
+    #[serde(serialize_with = "round_dec_opt")]
     exchange_rate: Option<Decimal>,
-    #[serde(serialize_with = "round_dec")]
+    #[serde(serialize_with = "round_dec_opt")]
     fees: Option<Decimal>,
-    #[serde(serialize_with = "round_dec")]
+    #[serde(serialize_with = "round_dec_opt")]
     taxes: Option<Decimal>,
-    #[serde(serialize_with = "round_dec")]
+    #[serde(serialize_with = "round_dec_opt")]
     shares: Option<Decimal>,
     #[serde(rename = "ISIN")]
     isin: Option<String>,
@@ -162,89 +164,21 @@ struct PortfolioTransaction {
     note: Option<String>,
 }
 
-fn round_dec<S>(value: &Option<Decimal>, serializer: S) -> Result<S::Ok, S::Error>
+fn round_dec_opt<S>(value: &Option<Decimal>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    // Ok(value.round_dp(4).into())
-    // String::serialize(value.round_dp(4), serializer)
-    // Ok(value.map(|v| v.serialize()))
-    // Decimal::serialize(value.as_ref().unwrap())
-    // serializer.serialize_str(&value.unwrap().to_string())
-    // let value = dec!(0);
-    // Decimal::serialize(&value, serializer)
-    // Serialize::serialize::<Decimal>(value, serializer)
     // Serialize::serialize(&value.map(|v| v.round_dp(4)), serializer)
     Serialize::serialize(&value.map(|v| v), serializer)
 }
 
-// #[derive(Debug, Serialize)]
-// #[serde(tag = "Type", rename_all = "PascalCase")]
-// enum PortfolioTransaction {
-//     Interest {
-//         date: String,
-//         #[serde(rename = "Securities Account")]
-//         securities_account: Option<String>,
-//         #[serde(rename = "Cash Account")]
-//         cash_account: String,
-//         // #[serde(rename = "Type")]
-//         // type_: PortfolioType,
-//         value: String,
-//         #[serde(rename = "Transaction Currency")]
-//         transaction_currency: String,
-//         #[serde(rename = "Gross Amount")]
-//         gross_amount: Option<String>,
-//         #[serde(rename = "Currency Gross Amount")]
-//         currency_gross_amount: Option<String>,
-//         #[serde(rename = "Exchange Rate")]
-//         exchange_rate: Option<String>,
-//         fees: Option<String>,
-//         taxes: Option<String>,
-//         shares: Option<String>,
-//         #[serde(rename = "ISIN")]
-//         isin: Option<String>,
-//         #[serde(rename = "WKN")]
-//         wkn: Option<String>,
-//         #[serde(rename = "Ticker Symbol")]
-//         ticker_symbol: Option<String>,
-//         #[serde(rename = "Security Name")]
-//         security_name: Option<String>,
-//         note: Option<String>,
-//     },
-//     Buy {
-//     date: String,
-//     #[serde(rename = "Securities Account")]
-//     securities_account: Option<String>,
-//     #[serde(rename = "Cash Account")]
-//     cash_account: String,
-//     // #[serde(rename = "Type")]
-//     // type_: PortfolioType,
-//     value: String,
-//     #[serde(rename = "Transaction Currency")]
-//     transaction_currency: String,
-//     #[serde(rename = "Gross Amount")]
-//     gross_amount: Option<String>,
-//     #[serde(rename = "Currency Gross Amount")]
-//     currency_gross_amount: Option<String>,
-//     #[serde(rename = "Exchange Rate")]
-//     exchange_rate: Option<String>,
-//     fees: Option<String>,
-//     taxes: Option<String>,
-//     shares: Option<String>,
-//     #[serde(rename = "ISIN")]
-//     isin: Option<String>,
-//     #[serde(rename = "WKN")]
-//     wkn: Option<String>,
-//     #[serde(rename = "Ticker Symbol")]
-//     ticker_symbol: Option<String>,
-//     #[serde(rename = "Security Name")]
-//     security_name: Option<String>,
-//     note: Option<String>,
-//     },
-//     Sell {
-
-//     }
-// }
+fn round_dec<S>(value: &Decimal, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // round_dp(4)
+    Serialize::serialize(&value, serializer)
+}
 
 #[derive(Debug, Serialize)]
 enum PortfolioType {
@@ -292,29 +226,8 @@ enum AccountTransaction {
     },
 }
 
-// #[derive(Debug, Serialize)]
-// enum AccountType {
-//     Buy,
-//     Deposit,
-//     Dividend,
-//     Fees,
-//     #[serde(rename = "Fees Refund")]
-//     FeesRefund,
-//     Interest,
-//     #[serde(rename = "Interest Charge")]
-//     InterestCharge,
-//     Removal,
-//     Sell,
-//     #[serde(rename = "Tax Refund")]
-//     TaxRefund,
-//     Taxes,
-//     #[serde(rename = "Transfer (Inbound)")]
-//     TransferInbound,
-//     #[serde(rename = "Transfer (Outbound)")]
-//     TransferOutbound,
-// }
-
 pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+    let yahoo = yahoo_symbol::Yahoo::new();
     let mut reader = csv::ReaderBuilder::new().delimiter(b';').from_path(input)?;
     let mut writer = csv::WriterBuilder::new()
         .delimiter(b',')
@@ -322,8 +235,23 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
     // let mut types = std::collections::HashSet::new();
     for line in reader.deserialize() {
         let line: AvanzaTransaction = line?;
-        // dbg!(&line);
-        // types.insert(line.typ_av_transaktion.clone());
+
+        let mut security_name = line.vardepapper_beskrivning.clone();
+        let mut y_symbol = None;
+
+        let y_securities = line
+            .isin
+            .as_ref()
+            .map(|i| yahoo.isin_to_symbols(i).unwrap());
+        if let Some(ss) = y_securities {
+            let security = ss.iter().find(|s| s.exchange == "STO").or(ss.first());
+            if let Some(security) = security {
+                y_symbol = Some(security.symbol.clone());
+                if security_name.is_none() {
+                    security_name = Some(security.name.clone());
+                }
+            }
+        }
         if let Some(pp) = match line.typ_av_transaktion {
             AvanzaType::Köp | AvanzaType::Sälj => {
                 let exch: Option<Decimal> = match line.valutakurs {
@@ -339,18 +267,18 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     } else {
                         PortfolioType::Sell
                     },
-                    value: line.belopp,
+                    value: -line.belopp.unwrap(),
                     transaction_currency: line.transaktionsvaluta,
                     gross_amount: None,
                     currency_gross_amount: Some(line.instrumentvaluta),
                     exchange_rate: exch,
                     fees: line.courtage,
                     taxes: None,
-                    shares: line.antal,
-                    isin: Some(line.isin),
+                    shares: line.antal.as_ref().map(Decimal::abs),
+                    isin: line.isin,
                     wkn: None,
-                    ticker_symbol: None,
-                    security_name: line.vardepapper_beskrivning,
+                    ticker_symbol: y_symbol,
+                    security_name: security_name,
                     note: None,
                 })
             }
@@ -361,14 +289,19 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     PortfolioType::DeliveryInbound
                 };
                 Some(PortfolioTransaction {
-                    date: line.datum,
+                    date: line.datum.clone(),
                     securities_account: Some(line.konto),
                     cash_account: None,
                     type_: type_,
                     value: if let (Some(antal), Some(kurs)) = (line.antal, line.kurs) {
-                        Some(antal * kurs)
+                        antal * kurs
                     } else {
-                        None
+                        println!(
+                            "Assuming value is 0 at {} {}",
+                            &line.datum,
+                            &line.vardepapper_beskrivning.clone().unwrap_or_default()
+                        );
+                        dec!(0)
                     },
                     transaction_currency: line.transaktionsvaluta,
                     gross_amount: None,
@@ -377,37 +310,59 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                     fees: line.courtage,
                     taxes: None,
                     shares: line.antal,
-                    isin: Some(line.isin),
+                    isin: line.isin,
                     wkn: None,
-                    ticker_symbol: None,
-                    security_name: None,
+                    ticker_symbol: y_symbol,
+                    security_name: security_name,
                     note: line.vardepapper_beskrivning,
                 })
             }
+            AvanzaType::Övrigt if line.antal.is_some() => {
+                // Could be sell/move of defaulted stocks.
+                let type_ = if line.antal.as_ref().unwrap().is_sign_negative() {
+                    PortfolioType::DeliveryOutbound
+                } else {
+                    PortfolioType::DeliveryInbound
+                };
+                Some(PortfolioTransaction {
+                    date: line.datum.clone(),
+                    securities_account: Some(line.konto),
+                    cash_account: None,
+                    type_: type_,
+                    value: if let (Some(antal), Some(kurs)) = (line.antal, line.kurs) {
+                        antal * kurs
+                    } else {
+                        println!(
+                            "Assuming value is 0 at {} {}",
+                            &line.datum,
+                            &line.vardepapper_beskrivning.clone().unwrap_or_default()
+                        );
+                        dec!(0)
+                    },
+                    transaction_currency: line.transaktionsvaluta,
+                    gross_amount: None,
+                    currency_gross_amount: Some(line.instrumentvaluta),
+                    exchange_rate: None,
+                    fees: line.courtage,
+                    taxes: None,
+                    shares: line.antal,
+                    isin: line.isin,
+                    wkn: None,
+                    ticker_symbol: y_symbol,
+                    security_name: security_name,
+                    note: line.vardepapper_beskrivning,
+                })
+            }
+            AvanzaType::Övrigt if line.antal.is_none() => {
+                // Could be taxes or transfer of money to credit account.
+                None
+            }
+            AvanzaType::Övrigt => {
+                panic!("Should not get here");
+            }
             AvanzaType::Ränta => None,
-            // PortfolioTransaction {
-            //     date: line.datum,
-            //     securities_account: None,
-            //     cash_account: line.konto,
-            //     type_: PortfolioType::TransferInbound,
-            //     value: None,
-            //     transaction_currency: line.transaktionsvaluta,
-            //     gross_amount: ,
-            //     // currency_gross_amount: line.transaktionsvaluta,
-            //     currency_gross_amount: None,
-            //     exchange_rate: None,
-            //     fees: None,
-            //     taxes: None,
-            //     shares: None,
-            //     isin: None,
-            //     wkn: None,
-            //     ticker_symbol: None,
-            //     security_name: None,
-            //     note: line.vardepapper_beskrivning,
-            // }
             AvanzaType::Insättning => None,
             AvanzaType::Uttag => None,
-            AvanzaType::Övrigt => None,
         } {
             writer.serialize(pp)?;
         }

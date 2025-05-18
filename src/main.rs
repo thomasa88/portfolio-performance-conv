@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 
 mod avanza;
+mod yahoo_symbol;
 
 #[derive(Parser, Debug)]
 struct Args {
