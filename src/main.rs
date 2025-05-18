@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 
-mod types;
-mod pp;
 mod avanza;
+mod pp;
+mod types;
 mod yahoo_symbol;
 
 #[derive(Parser, Debug)]
@@ -13,7 +13,9 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let output = args.file.with_extension("pp.csv");
-    avanza::convert(&args.file, &output)?;
+    let portfolio_output = args.file.with_extension("pp-portfolio.csv");
+    let account_output = args.file.with_extension("pp-account.csv");
+    let mut writer = pp::CsvWriter::new(portfolio_output, account_output)?;
+    avanza::convert(&args.file, &mut writer)?;
     Ok(())
 }

@@ -44,17 +44,9 @@ enum AvanzaType {
     Övrigt,
 }
 
-pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Result<()> {
+pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::Result<()> {
     let yahoo = yahoo_symbol::Yahoo::new();
     let mut reader = csv::ReaderBuilder::new().delimiter(b';').from_path(input)?;
-    // Handles securities accounts
-    let mut portfolio_transactions = csv::WriterBuilder::new()
-        .delimiter(b',')
-        .from_path(output)?;
-    // Handles deposit accounts
-    let mut account_transactions = csv::WriterBuilder::new()
-        .delimiter(b',')
-        .from_path(output.with_extension("pp-a.csv"))?;
     for line in reader.deserialize() {
         let line: AvanzaTransaction = line?;
 
@@ -74,7 +66,7 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                 }
             }
         }
-        if let Some(pp) = match line.typ_av_transaktion {
+        if let Some(t) = match line.typ_av_transaktion {
             AvanzaType::Köp | AvanzaType::Sälj => {
                 let exch: Option<Decimal> = line.valutakurs.map(|v| (dec!(1.0) / v).round_dp(4));
                 Some(pp::Transaction::Portfolio(pp::PortfolioTransaction {
@@ -220,14 +212,7 @@ pub fn convert(input: &std::path::Path, output: &std::path::Path) -> anyhow::Res
                 note: line.vardepapper_beskrivning,
             })),
         } {
-            match pp {
-                pp::Transaction::Portfolio(portfolio_transaction) => {
-                    portfolio_transactions.serialize(portfolio_transaction)?;
-                }
-                pp::Transaction::Account(account_transaction) => {
-                    account_transactions.serialize(account_transaction)?;
-                }
-            }
+            writer.write(&t)?;
         }
     }
     Ok(())

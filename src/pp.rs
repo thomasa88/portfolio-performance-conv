@@ -1,6 +1,8 @@
+use std::{fs::File, path::Path};
+
+use crate::types::Currency;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use crate::types::Currency;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
@@ -112,4 +114,46 @@ pub enum AccountType {
     TransferInbound,
     #[serde(rename = "Transfer (Outbound)")]
     TransferOutbound,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CsvWriterError {
+    #[error("Failed to create file")]
+    CreateFileFailed,
+    #[error("Failed to write to file")]
+    WriteFailed,
+}
+
+pub struct CsvWriter {
+    portfolio_trans: csv::Writer<File>,
+    account_trans: csv::Writer<File>,
+}
+
+impl CsvWriter {
+    /// Creates a new CSV writer for the given portfolio and account paths.
+    /// The portfolio path is for the securities account transactions,
+    /// and the account path is for the savings account transactions.
+    /// The CSV files will be created if they do not exist.
+    /// If the files already exist, they will be overwritten.
+    pub fn new<T: AsRef<Path>>(portfolio_path: T, account_path: T) -> Result<Self, CsvWriterError> {
+        Ok(CsvWriter {
+            portfolio_trans: csv::WriterBuilder::new()
+                .delimiter(b',')
+                .from_path(portfolio_path)
+                .map_err(|_| CsvWriterError::CreateFileFailed)?,
+            account_trans: csv::WriterBuilder::new()
+                .delimiter(b',')
+                .from_path(account_path)
+                .map_err(|_| CsvWriterError::CreateFileFailed)?,
+        })
+    }
+
+    pub fn write(&mut self, transaction: &Transaction) -> Result<(), CsvWriterError> {
+        match transaction {
+            Transaction::Portfolio(t) => self.portfolio_trans.serialize(t),
+            Transaction::Account(t) => self.account_trans.serialize(t),
+        }
+        .map_err(|_| CsvWriterError::WriteFailed)?;
+        Ok(())
+    }
 }
