@@ -223,24 +223,3 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
 fn prefix_account(account_name: &str) -> String {
     format!("Avanza {account_name}")
 }
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn test_avanza() {
-
-        // Datum;Konto;Typ av transaktion;Värdepapper/beskrivning;Antal;Kurs;Belopp;Transaktionsvaluta;Courtage;Valutakurs;Instrumentvaluta;ISIN;Resultat
-        // 2021-03-15;Konto A kreditkonto;Ränta;;;;-123,45;SEK;;;;;
-        // 2021-03-12;Konto A kreditkonto;Uttag;Överföring till ISK/KF-depån;;;-567,89;SEK;;;;;
-        // 2022-03-12;Konto A;Insättning;Överföring från Kreditdepån;;;567,89;SEK;;;;;
-        // 2022-03-12;Konto A;Köp;Global Fund;2,345;150,75;-353,45;SEK;0;;SEK;SE0012345678;
-        // 2025-03-10;Konto A kreditkonto;Uttag;Överföring till ISK/KF-depån;;;-987,65;SEK;;;;;
-        // 2025-03-10;Konto A;Insättning;Överföring från Kreditdepån;;;987,65;SEK;;;;;
-        // 2025-03-10;Konto A;Köp;Emerging Markets;5,678;200,50;-1137,89;SEK;0;;SEK;SE0009876543;
-        // 2025-03-10;Konto A;Köp;Global Index Fund;4,321;175,25;-756,45;SEK;0;;SEK;SE0018765432;
-        // 2025-03-10;Konto A;Köp;Nordic Small Cap;3,210;190,10;-610,32;SEK;0;;SEK;SE0017654321;
-        // 2025-03-05;Konto A kreditkonto;Uttag;Överföring till ISK/KF-depån;;;-456,78;SEK;;;;;
-        // 2025-03-05;Konto A;Insättning;Överföring från Kreditdepån;;;456,78;SEK;;;;;
-    }
-}
