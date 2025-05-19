@@ -1,4 +1,4 @@
-use rust_decimal::{Decimal, dec, prelude::Zero};
+use rust_decimal::{Decimal, dec};
 use serde::Deserialize;
 
 use crate::pp;
@@ -66,13 +66,14 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
                 }
             }
         }
-        if let Some(t) = match line.typ_av_transaktion {
+        let avanza_account = prefix_account(&line.konto);
+        let transaction = match line.typ_av_transaktion {
             AvanzaType::Köp | AvanzaType::Sälj => {
                 let exch: Option<Decimal> = line.valutakurs.map(|v| (dec!(1.0) / v).round_dp(4));
                 Some(pp::Transaction::Portfolio(pp::PortfolioTransaction {
                     date: line.datum,
-                    securities_account: Some(line.konto.clone()),
-                    cash_account: Some(line.konto),
+                    securities_account: Some(avanza_account.clone()),
+                    cash_account: Some(avanza_account),
                     type_: if line.typ_av_transaktion == AvanzaType::Köp {
                         pp::PortfolioType::Buy
                     } else {
@@ -101,7 +102,7 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
                 };
                 Some(pp::Transaction::Portfolio(pp::PortfolioTransaction {
                     date: line.datum.clone(),
-                    securities_account: Some(line.konto),
+                    securities_account: Some(avanza_account),
                     cash_account: None,
                     type_,
                     value: if let (Some(antal), Some(kurs)) = (line.antal, line.kurs) {
@@ -137,7 +138,7 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
                 };
                 Some(pp::Transaction::Portfolio(pp::PortfolioTransaction {
                     date: line.datum.clone(),
-                    securities_account: Some(line.konto),
+                    securities_account: Some(avanza_account),
                     cash_account: None,
                     type_,
                     value: if let (Some(antal), Some(kurs)) = (line.antal, line.kurs) {
@@ -168,9 +169,9 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
                 // Could be transfer of money to the credit account. Could it be taxes?
                 Some(pp::Transaction::Account(pp::AccountTransaction {
                     date: line.datum,
-                    cash_account: line.konto,
+                    cash_account: avanza_account,
                     securities_account: None,
-                    type_: if line.belopp.unwrap_or_default() <= Decimal::zero() {
+                    type_: if line.belopp.unwrap_or_default().is_sign_negative() {
                         pp::AccountType::Removal
                     } else {
                         pp::AccountType::Deposit
@@ -186,7 +187,7 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
             AvanzaType::Insättning | AvanzaType::Uttag => {
                 Some(pp::Transaction::Account(pp::AccountTransaction {
                     date: line.datum,
-                    cash_account: line.konto,
+                    cash_account: avanza_account,
                     securities_account: None,
                     type_: if line.typ_av_transaktion == AvanzaType::Insättning {
                         pp::AccountType::Deposit
@@ -200,9 +201,9 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
             }
             AvanzaType::Ränta => Some(pp::Transaction::Account(pp::AccountTransaction {
                 date: line.datum,
-                cash_account: line.konto,
+                cash_account: avanza_account,
                 securities_account: None,
-                type_: if line.belopp.unwrap_or_default() <= Decimal::zero() {
+                type_: if line.belopp.unwrap_or_default().is_sign_negative() {
                     pp::AccountType::InterestCharge
                 } else {
                     pp::AccountType::Interest
@@ -211,16 +212,20 @@ pub fn convert(input: &std::path::Path, writer: &mut pp::CsvWriter) -> anyhow::R
                 transaction_currency: line.transaktionsvaluta,
                 note: line.vardepapper_beskrivning,
             })),
-        } {
+        };
+        if let Some(t) = transaction {
             writer.write(&t)?;
         }
     }
     Ok(())
 }
 
+fn prefix_account(account_name: &str) -> String {
+    format!("Avanza {account_name}")
+}
+
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn test_avanza() {

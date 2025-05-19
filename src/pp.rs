@@ -1,4 +1,4 @@
-use std::{fs::File, path::Path};
+use std::{collections::HashSet, fs::File, path::Path};
 
 use crate::types::Currency;
 use rust_decimal::Decimal;
@@ -119,7 +119,7 @@ pub enum AccountType {
 #[derive(Debug, thiserror::Error)]
 pub enum CsvWriterError {
     #[error("Failed to create file")]
-    CreateFileFailed,
+    CreateFileFailed(#[from] csv::Error),
     #[error("Failed to write to file")]
     WriteFailed,
 }
@@ -127,6 +127,8 @@ pub enum CsvWriterError {
 pub struct CsvWriter {
     portfolio_trans: csv::Writer<File>,
     account_trans: csv::Writer<File>,
+    security_accounts: HashSet<String>,
+    cash_accounts: HashSet<String>,
 }
 
 impl CsvWriter {
@@ -140,20 +142,51 @@ impl CsvWriter {
             portfolio_trans: csv::WriterBuilder::new()
                 .delimiter(b',')
                 .from_path(portfolio_path)
-                .map_err(|_| CsvWriterError::CreateFileFailed)?,
+                .map_err(CsvWriterError::CreateFileFailed)?,
             account_trans: csv::WriterBuilder::new()
                 .delimiter(b',')
                 .from_path(account_path)
-                .map_err(|_| CsvWriterError::CreateFileFailed)?,
+                .map_err(CsvWriterError::CreateFileFailed)?,
+            security_accounts: HashSet::new(),
+            cash_accounts: HashSet::new(),
         })
     }
 
     pub fn write(&mut self, transaction: &Transaction) -> Result<(), CsvWriterError> {
         match transaction {
-            Transaction::Portfolio(t) => self.portfolio_trans.serialize(t),
-            Transaction::Account(t) => self.account_trans.serialize(t),
-        }
-        .map_err(|_| CsvWriterError::WriteFailed)?;
+            Transaction::Portfolio(t) => {
+                self.portfolio_trans
+                    .serialize(t)
+                    .map_err(|_| CsvWriterError::WriteFailed)?;
+                if let Some(security_account) = &t.securities_account {
+                    self.security_accounts.insert(security_account.clone());
+                }
+                if let Some(cash_account) = &t.cash_account {
+                    self.cash_accounts.insert(cash_account.clone());
+                }
+            }
+            Transaction::Account(t) => {
+                self.account_trans
+                    .serialize(t)
+                    .map_err(|_| CsvWriterError::WriteFailed)?;
+                {
+                    if let Some(security_account) = &t.securities_account {
+                        self.security_accounts.insert(security_account.clone());
+                    }
+                    self.cash_accounts.insert(t.cash_account.clone());
+                }
+            }
+        };
         Ok(())
+    }
+
+    /// Returns an accumulated list of all created accounts.
+    pub fn security_accounts(&self) -> &HashSet<String> {
+        &self.security_accounts
+    }
+
+    /// Returns an accumulated list of all created accounts.
+    pub fn cash_accounts(&self) -> &HashSet<String> {
+        &self.cash_accounts
     }
 }
