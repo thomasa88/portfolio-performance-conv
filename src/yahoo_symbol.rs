@@ -86,7 +86,7 @@ impl Yahoo {
         let now = std::time::Instant::now();
         if let Some(last) = self.last_lookup.get() {
             let passed = last - now;
-            let wait = Duration::from_secs(1) - passed;
+            let wait = Duration::from_millis(500) - passed;
             std::thread::sleep(wait);
         }
         self.last_lookup.replace(Some(now));
