@@ -82,6 +82,8 @@ impl Yahoo {
             }
         }
 
+        print!("Fetching symbol for {isin} from Yahoo Finance: ");
+
         // Rate limit
         let now = std::time::Instant::now();
         if let Some(last) = self.last_lookup.get() {
@@ -91,6 +93,16 @@ impl Yahoo {
         }
         self.last_lookup.replace(Some(now));
         let lookup = fetch_securities(isin)?;
+
+        println!(
+            "{}",
+            lookup
+                .securities
+                .iter()
+                .map(|s| s.symbol.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
 
         self.cache
             .borrow_mut()
