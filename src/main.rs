@@ -39,5 +39,13 @@ fn main() -> Result<()> {
     println!();
     println!("Portfolio transactions: {}", portfolio_output.display());
     println!("Account transactions: {}", account_output.display());
+
+    #[cfg(target_os = "windows")]
+    {
+        // The user did not open the program in a terminal, so pause so that they can read the output.
+        println!("{}", "\nPress enter to exit.".green());
+        std::io::stdin().read_line(&mut String::new()).ok();
+    }
+
     Ok(())
 }
