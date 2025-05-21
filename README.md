@@ -6,7 +6,7 @@ A project to learn Rust and to convert CSV files from banks into [Portfolio Perf
 
 Download CSV of transactions from *Min ekonomi -> Transaktioner -> [Set date range] -> Exportera transaktioner*.
 
-Run the converter on the CSV.
+Run the converter on the CSV. You can drag & drop a file on the program on Windows.
 
 Manually create the security and cash/deposit accounts in Portfolio Performance.
 
