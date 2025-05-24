@@ -1,11 +1,79 @@
-use anyhow::Result;
+use std::path::Path;
+
+use anyhow::{Ok, Result};
 use clap::Parser;
 use colored::Colorize;
+use iced::{
+    Element,
+    widget::{Column, text_editor},
+};
 
 mod avanza;
 mod pp;
 mod types;
 mod yahoo_symbol;
+
+#[derive(Default)]
+struct Settings {
+    path: String,
+    log: iced::widget::text_editor::Content,
+}
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    PathChanged(String),
+    SelectFile,
+    Convert,
+    Log,
+}
+
+impl Settings {
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::PathChanged(path) => {
+                self.path = path;
+            }
+            Message::SelectFile => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("CSV", &["csv"])
+                    .pick_file()
+                {
+                    self.path = path.to_string_lossy().into_owned();
+                }
+            }
+            Message::Convert => {
+                let path = Path::new(&self.path);
+                convert(&path).unwrap()
+            }
+            Message::Log => todo!(),
+        }
+    }
+
+    fn view(&self) -> Element<Message> {
+        use iced::widget::{
+            button, center, column, container, horizontal_space, row, text, text_input,
+        };
+
+        column![
+            row![
+                text("Transaktionsfil:"),
+                text_input("", &self.path)
+                    .on_input(Message::PathChanged)
+                    .on_submit(Message::Convert),
+                button("Bläddra...").on_press(Message::SelectFile),
+            ]
+            .spacing(5),
+            row![
+                horizontal_space(),
+                button("Konvertera").on_press(Message::Convert),
+                horizontal_space()
+            ],
+            text_editor(&self.log).height(iced::Length::Fill)
+        ]
+        .spacing(5)
+        .into()
+    }
+}
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -13,11 +81,24 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    iced::application(
+        "Portfolio Performance Converter",
+        Settings::update,
+        Settings::view,
+    )
+    .window_size(iced::Size::new(850., 400.))
+    .run()?;
+    return Ok(());
+
     let args = Args::parse();
-    let portfolio_output = args.file.with_extension("pp-portfolio-transactions.csv");
-    let account_output = args.file.with_extension("pp-account-transactions.csv");
+    convert(&args.file)
+}
+
+fn convert(input_path: &Path) -> Result<()> {
+    let portfolio_output = input_path.with_extension("pp-portfolio-transactions.csv");
+    let account_output = input_path.with_extension("pp-account-transactions.csv");
     let mut writer = pp::CsvWriter::new(&portfolio_output, &account_output)?;
-    avanza::convert(&args.file, &mut writer)?;
+    avanza::convert(&input_path, &mut writer)?;
 
     let mut deps: Vec<_> = writer.cash_accounts().iter().collect();
     deps.sort();
