@@ -9,7 +9,7 @@ use colored::Colorize;
 use iced::{
     Element, Subscription,
     futures::{SinkExt, Stream, StreamExt},
-    stream::try_channel,
+    stream::{channel, try_channel},
     widget,
 };
 
@@ -23,12 +23,14 @@ struct Settings {
     path: String,
     log: iced::widget::text_editor::Content,
     running: bool,
+    selecting_file: bool,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     PathChanged(String),
     SelectFile,
+    FileSelected(Option<PathBuf>),
     Convert,
     ConversionDone(Result<(), ConversionError>),
     Log(Result<ConversionProgress, ConversionError>),
@@ -42,12 +44,7 @@ impl Settings {
                 self.path = path;
             }
             Message::SelectFile => {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("CSV", &["csv"])
-                    .pick_file()
-                {
-                    self.path = path.to_string_lossy().into_owned();
-                }
+                self.selecting_file = true;
             }
             Message::Convert => {
                 self.log = widget::text_editor::Content::new();
@@ -79,6 +76,12 @@ impl Settings {
                     self.log.perform(action);
                 }
             }
+            Message::FileSelected(path) => {
+                self.selecting_file = false;
+                if let Some(path) = path {
+                    self.path = path.to_string_lossy().into_owned();
+                }
+            }
         }
     }
 
@@ -92,6 +95,9 @@ impl Settings {
             let convert_id = 1;
             let path = Path::new(&self.path).to_owned();
             Subscription::run_with_id(convert_id, convert(path).map(Message::Log))
+        } else if self.selecting_file {
+            let select_file_id = 2;
+            Subscription::run_with_id(2, select_file())
         } else {
             Subscription::none()
         }
@@ -99,6 +105,10 @@ impl Settings {
 
     fn view(&self) -> Element<Message> {
         use iced::widget::*;
+        let mut convert_btn = button("Konvertera");
+        if !self.running {
+            convert_btn = convert_btn.on_press(Message::Convert);
+        }
         widget::column![
             row![
                 text("Transaktionsfil:"),
@@ -108,11 +118,7 @@ impl Settings {
                 button("Välj CSV...").on_press(Message::SelectFile),
             ]
             .spacing(5),
-            row![
-                horizontal_space(),
-                button("Konvertera").on_press(Message::Convert),
-                horizontal_space()
-            ],
+            row![horizontal_space(), convert_btn, horizontal_space()],
             text_editor(&self.log)
                 .height(iced::Length::Fill)
                 .size(13)
@@ -238,5 +244,23 @@ fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress,
 
         output.send(ConversionProgress::Done).await.unwrap();
         Ok(())
+    })
+}
+
+fn select_file() -> impl Stream<Item = Message> {
+    channel(1, async |mut output| {
+        if let Some(path) = rfd::AsyncFileDialog::new()
+            .add_filter("CSV", &["csv"])
+            .pick_file()
+            .await
+        {
+            output
+                .send(Message::FileSelected(Some(path.into())))
+                .await
+                .unwrap();
+        } else {
+            // Stop the file selecting state
+            output.send(Message::FileSelected(None)).await.unwrap();
+        }
     })
 }
