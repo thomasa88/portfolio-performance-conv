@@ -1,16 +1,10 @@
-use core::num;
-use std::ops::Deref;
-
-use iced::futures::channel::mpsc::Sender;
-use iced::futures::{SinkExt, Stream, StreamExt};
-use iced::stream::try_channel;
 use rust_decimal::{Decimal, dec};
 use serde::Deserialize;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use crate::pp;
 use crate::types::{Currency, dec_from_swe_num_opt};
-use crate::{ConversionError, ConversionProgress, pp};
 use crate::{ProgressSender, yahoo_symbol};
 
 #[derive(Debug, Deserialize)]
@@ -57,7 +51,7 @@ pub async fn convert(
     writer: &mut pp::CsvWriter,
     mut progress: ProgressSender,
 ) -> anyhow::Result<()> {
-    let yahoo = yahoo_symbol::Yahoo::new();
+    let yahoo = yahoo_symbol::Yahoo::new_with_progress(progress.clone());
     let mut read = File::open(&input).await.map(BufReader::new)?;
     let mut line_buf = String::new();
     let mut num_lines = 0;
@@ -66,7 +60,7 @@ pub async fn convert(
         num_lines += 1;
     }
     drop(line_buf);
-    // Assumming one header line
+    // Assuming one header line
     num_lines -= 1;
     progress.total(num_lines).await;
     progress.count(0).await;
@@ -134,7 +128,7 @@ pub async fn convert(
                     } else {
                         progress
                             .log(format!(
-                                "Assuming value is 0 at {} {}",
+                                "Antar att beloppet är 0 för {} {}",
                                 &line.datum,
                                 &line.vardepapper_beskrivning.clone().unwrap_or_default()
                             ))
@@ -172,7 +166,7 @@ pub async fn convert(
                     } else {
                         progress
                             .log(format!(
-                                "Assuming value is 0 at {} {}",
+                                "Antar att beloppet är 0 för {} {}",
                                 &line.datum,
                                 &line.vardepapper_beskrivning.clone().unwrap_or_default()
                             ))

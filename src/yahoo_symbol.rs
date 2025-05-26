@@ -13,6 +13,8 @@ use tokio::{
     time::{Duration, Instant, sleep},
 };
 
+use crate::ProgressSender;
+
 const CACHE_FILENAME: &str = "yahoo_cache.json";
 
 /// Performs lookups towards Yahoo Finance.
@@ -24,6 +26,7 @@ pub(crate) struct Yahoo {
     cache_is_dirty: AtomicBool,
     /// For rate limiting
     last_fetch: Mutex<Option<Instant>>,
+    progress: Option<Mutex<ProgressSender>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default)]
@@ -83,7 +86,14 @@ impl Yahoo {
             last_fetch: Mutex::new(None),
             cache,
             cache_is_dirty: AtomicBool::new(false),
+            progress: None,
         }
+    }
+
+    pub fn new_with_progress(progress: ProgressSender) -> Self {
+        let mut y = Self::new();
+        y.progress = Some(Mutex::new(progress));
+        y
     }
 }
 
@@ -101,20 +111,25 @@ impl Yahoo {
             }
         }
 
-        print!("Fetching symbol for {isin} from Yahoo Finance: ");
+        self.log(format!("Hämtar symbol for {isin} från Yahoo Finance:"))
+            .await;
 
         let lookup = self.rate_limit_fetch(isin).await?;
 
-        // TODO: Log this instead?
-        println!(
-            "{}",
-            lookup
-                .securities
-                .iter()
-                .map(|s| s.symbol.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        if lookup.securities.is_empty() {
+            self.log("Ingen träff").await;
+        } else {
+            self.log(format!(
+                "{}",
+                lookup
+                    .securities
+                    .iter()
+                    .map(|s| s.symbol.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+            .await;
+        }
 
         let mut wcache = self.cache.write().await;
         wcache.entries.insert(isin.to_owned(), lookup);
@@ -125,6 +140,12 @@ impl Yahoo {
             isin: isin,
             rcache: rcache,
         })
+    }
+
+    async fn log(&self, msg: impl Into<String>) {
+        if let Some(ref progress) = self.progress {
+            progress.lock().await.log(msg).await;
+        }
     }
 
     async fn rate_limit_fetch(&self, isin: &str) -> anyhow::Result<IsinLookup> {

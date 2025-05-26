@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -196,14 +197,18 @@ fn main() -> anyhow::Result<()> {
     // convert(&args.file)
 }
 
+#[derive(Clone)]
 struct ProgressSender {
     sender: Sender<ConversionProgress>,
 }
 
 impl ProgressSender {
-    async fn log(&mut self, msg: String) {
+    async fn log(&mut self, msg: impl Into<String>) {
         // Errors are ignored -> "lossy logging"
-        self.sender.send(ConversionProgress::Log(msg)).await.ok();
+        self.sender
+            .send(ConversionProgress::Log(msg.into()))
+            .await
+            .ok();
     }
 
     async fn count(&mut self, value: usize) {
@@ -248,11 +253,11 @@ fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress,
         println!();
         output
             .send(ConversionProgress::Log(format!(
-                "Add the below accounts before importing the CSV files."
+                "Lägg till följande konton i Portfolio Performance innan du importerar CSV-filerna."
             )))
             .await
             .unwrap();
-        output.send(ConversionProgress::Log(format!("{}", "Failing to add all accounts will likely result in transactions silently being connected to another account.".red()))).await.unwrap();
+        output.send(ConversionProgress::Log(format!("{}", "Om du inte lägger in alla konton i förväg så kommer transaktioner hamna på fel konton."))).await.unwrap();
         println!();
         output
             .send(ConversionProgress::Log(format!("Securities accounts:")))
