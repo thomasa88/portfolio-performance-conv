@@ -1,6 +1,5 @@
 use std::{
     path::{Path, PathBuf},
-    pin::pin,
     sync::Arc,
 };
 
@@ -8,7 +7,7 @@ use clap::Parser;
 use colored::Colorize;
 use iced::{
     Element, Subscription,
-    futures::{SinkExt, Stream, StreamExt},
+    futures::{SinkExt, Stream, StreamExt, channel::mpsc::Sender},
     stream::{channel, try_channel},
     widget,
 };
@@ -18,12 +17,14 @@ mod pp;
 mod types;
 mod yahoo_symbol;
 
-#[derive(Default)]
 struct Settings {
     path: String,
     log: iced::widget::text_editor::Content,
     running: bool,
     selecting_file: bool,
+    status: String,
+    conv_count: Option<usize>,
+    conv_total: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,20 @@ enum Message {
     EditLog(widget::text_editor::Action),
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            path: Default::default(),
+            log: Default::default(),
+            running: false,
+            selecting_file: Default::default(),
+            status: "Välj en fil att konvertera".to_string(),
+            conv_count: None,
+            conv_total: None,
+        }
+    }
+}
+
 impl Settings {
     fn update(&mut self, message: Message) {
         match message {
@@ -47,6 +62,7 @@ impl Settings {
                 self.selecting_file = true;
             }
             Message::Convert => {
+                self.status = format!("Konverterar...");
                 self.log = widget::text_editor::Content::new();
                 self.running = true;
             }
@@ -64,8 +80,15 @@ impl Settings {
                             widget::text_editor::Edit::Enter,
                         ));
                     }
+                    ConversionProgress::Count(count) => {
+                        self.conv_count = Some(count);
+                    }
+                    ConversionProgress::Total(total) => {
+                        self.conv_total = Some(total);
+                    }
                     ConversionProgress::Done => {
                         self.running = false;
+                        self.status = format!("Klar!");
                     }
                 }
             }
@@ -97,7 +120,7 @@ impl Settings {
             Subscription::run_with_id(convert_id, convert(path).map(Message::Log))
         } else if self.selecting_file {
             let select_file_id = 2;
-            Subscription::run_with_id(2, select_file())
+            Subscription::run_with_id(select_file_id, select_file())
         } else {
             Subscription::none()
         }
@@ -109,16 +132,26 @@ impl Settings {
         if !self.running {
             convert_btn = convert_btn.on_press(Message::Convert);
         }
+        let count_text = if let Some(count) = self.conv_count {
+            if let Some(total) = self.conv_total {
+                format!("{count}/{total}")
+            } else {
+                format!("{count}")
+            }
+        } else {
+            String::new()
+        };
         widget::column![
             row![
-                text("Transaktionsfil:"),
+                text("Transaktionsfil:").align_y(iced::alignment::Vertical::Center),
                 text_input("", &self.path)
                     .on_input(Message::PathChanged)
                     .on_submit(Message::Convert),
                 button("Välj CSV...").on_press(Message::SelectFile),
+                convert_btn,
             ]
             .spacing(5),
-            row![horizontal_space(), convert_btn, horizontal_space()],
+            row![text(&self.status), horizontal_space(), text(count_text),],
             text_editor(&self.log)
                 .height(iced::Length::Fill)
                 .size(13)
@@ -137,8 +170,9 @@ enum ConversionError {
 
 #[derive(Debug, Clone)]
 enum ConversionProgress {
-    // Msg(String),
     Log(String),
+    Count(usize),
+    Total(usize),
     Done,
 }
 
@@ -162,8 +196,33 @@ fn main() -> anyhow::Result<()> {
     // convert(&args.file)
 }
 
+struct ProgressSender {
+    sender: Sender<ConversionProgress>,
+}
+
+impl ProgressSender {
+    async fn log(&mut self, msg: String) {
+        // Errors are ignored -> "lossy logging"
+        self.sender.send(ConversionProgress::Log(msg)).await.ok();
+    }
+
+    async fn count(&mut self, value: usize) {
+        self.sender
+            .send(ConversionProgress::Count(value))
+            .await
+            .ok();
+    }
+
+    async fn total(&mut self, value: usize) {
+        self.sender
+            .send(ConversionProgress::Total(value))
+            .await
+            .ok();
+    }
+}
+
 fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress, ConversionError>> {
-    try_channel(3, async move |mut output| {
+    try_channel(1, async move |mut output| {
         output
             .send(ConversionProgress::Log(format!(
                 "Konverterar {}...",
@@ -175,13 +234,12 @@ fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress,
         let account_output = input_path.with_extension("pp-account-transactions.csv");
         let mut writer = pp::CsvWriter::new(&portfolio_output, &account_output)
             .map_err(|e| ConversionError::TBD)?;
-        {
-            let mut s = pin!(avanza::convert(&input_path, &mut writer));
-            while let Some(Ok(log_msg)) = s.next().await {
-                output.send(ConversionProgress::Log(log_msg)).await.unwrap();
-            }
-            // s.next();
-        }
+        let log = ProgressSender {
+            sender: output.clone(),
+        };
+        avanza::convert(&input_path, &mut writer, log)
+            .await
+            .map_err(|e| ConversionError::TBD)?;
 
         let mut deps: Vec<_> = writer.cash_accounts().iter().collect();
         deps.sort();
