@@ -1,17 +1,16 @@
 use std::{
-    cell::RefCell,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use clap::Parser;
-use colored::Colorize;
 use iced::{
     Element, Subscription,
-    futures::{SinkExt, Stream, StreamExt, channel::mpsc::Sender},
+    futures::{SinkExt, Stream, StreamExt, TryStreamExt, channel::mpsc::Sender},
     stream::{channel, try_channel},
     widget,
 };
+use tokio::pin;
 
 mod avanza;
 mod pp;
@@ -179,22 +178,42 @@ enum ConversionProgress {
 
 #[derive(Parser, Debug)]
 struct Args {
-    file: std::path::PathBuf,
+    /// Fil att konvertera
+    file: Option<std::path::PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
-    iced::application(
-        "Portfolio Performance Converter",
-        Settings::update,
-        Settings::view,
-    )
-    .window_size(iced::Size::new(850., 400.))
-    .subscription(Settings::subscription)
-    .run()?;
-    return Ok(());
-
-    // let args = Args::parse();
-    // convert(&args.file)
+    let args = Args::parse();
+    if let Some(input_path) = args.file {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async move {
+            let s = convert(input_path);
+            pin!(s);
+            while let Some(result) = s.next().await {
+                match result {
+                    Ok(progress) => {
+                        match progress {
+                            ConversionProgress::Log(msg) => println!("{msg}"),
+                            ConversionProgress::Count(_) => (),
+                            ConversionProgress::Total(_) => (),
+                            ConversionProgress::Done => (),
+                        };
+                    }
+                    Err(_) => todo!(),
+                }
+            }
+        });
+    } else {
+        iced::application(
+            "Portfolio Performance Converter",
+            Settings::update,
+            Settings::view,
+        )
+        .window_size(iced::Size::new(850., 400.))
+        .subscription(Settings::subscription)
+        .run()?;
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -228,21 +247,17 @@ impl ProgressSender {
 
 fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress, ConversionError>> {
     try_channel(1, async move |mut output| {
-        output
-            .send(ConversionProgress::Log(format!(
-                "Konverterar {}...",
-                input_path.display()
-            )))
-            .await
-            .unwrap();
+        let mut progress = ProgressSender {
+            sender: output.clone(),
+        };
+        progress
+            .log(format!("Konverterar {}...", input_path.display()))
+            .await;
         let portfolio_output = input_path.with_extension("pp-portfolio-transactions.csv");
         let account_output = input_path.with_extension("pp-account-transactions.csv");
         let mut writer = pp::CsvWriter::new(&portfolio_output, &account_output)
             .map_err(|e| ConversionError::TBD)?;
-        let log = ProgressSender {
-            sender: output.clone(),
-        };
-        avanza::convert(&input_path, &mut writer, log)
+        avanza::convert(&input_path, &mut writer, progress.clone())
             .await
             .map_err(|e| ConversionError::TBD)?;
 
@@ -250,53 +265,38 @@ fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress,
         deps.sort();
         let mut secs: Vec<_> = writer.security_accounts().iter().collect();
         secs.sort();
-        println!();
-        output
-            .send(ConversionProgress::Log(format!(
-                "Lägg till följande konton i Portfolio Performance innan du importerar CSV-filerna."
-            )))
-            .await
-            .unwrap();
-        output.send(ConversionProgress::Log(format!("{}", "Om du inte lägger in alla konton i förväg så kommer transaktioner hamna på fel konton."))).await.unwrap();
-        println!();
-        output
-            .send(ConversionProgress::Log(format!("Securities accounts:")))
-            .await
-            .unwrap();
+        progress
+            .log(format!(
+                "
+
+
+Lägg till följande konton i Portfolio Performance innan du importerar CSV-filerna.
+Om du inte lägger in alla konton i förväg så kommer transaktioner hamna på fel konton.
+"
+            ))
+            .await;
+        progress.log(format!("Securities accounts:")).await;
         for account in secs {
-            output
-                .send(ConversionProgress::Log(format!("* {account}")))
-                .await
-                .unwrap();
+            progress.log(format!("* {account}")).await;
         }
-        println!();
-        output
-            .send(ConversionProgress::Log(format!(
-                "Deposit accounts (Reference accounts):"
-            )))
-            .await
-            .unwrap();
+        progress
+            .log(format!("\nDeposit accounts (Reference accounts):"))
+            .await;
         for account in deps {
-            output
-                .send(ConversionProgress::Log(format!("* {account}")))
-                .await
-                .unwrap();
+            progress.log(format!("* {account}")).await;
         }
-        println!();
-        output
-            .send(ConversionProgress::Log(format!(
-                "Portfolio transactions: {}",
+        progress
+            .log(format!(
+                "\nPortfolio transactions: {}",
                 portfolio_output.display()
-            )))
-            .await
-            .unwrap();
-        output
-            .send(ConversionProgress::Log(format!(
+            ))
+            .await;
+        progress
+            .log(format!(
                 "Account transactions: {}",
                 account_output.display()
-            )))
-            .await
-            .unwrap();
+            ))
+            .await;
 
         #[cfg(target_os = "windows")]
         {
