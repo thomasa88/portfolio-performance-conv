@@ -6,7 +6,7 @@ use std::{
 use clap::Parser;
 use iced::{
     Element, Subscription,
-    futures::{SinkExt, Stream, StreamExt, TryStreamExt, channel::mpsc::Sender},
+    futures::{SinkExt, Stream, StreamExt, channel::mpsc::Sender},
     stream::{channel, try_channel},
     widget,
 };
@@ -33,8 +33,7 @@ enum Message {
     SelectFile,
     FileSelected(Option<PathBuf>),
     Convert,
-    ConversionDone(Result<(), ConversionError>),
-    Log(Result<ConversionProgress, ConversionError>),
+    Progress(Result<ConversionProgress, String>),
     EditLog(widget::text_editor::Action),
 }
 
@@ -66,19 +65,10 @@ impl Settings {
                 self.log = widget::text_editor::Content::new();
                 self.running = true;
             }
-            Message::Log(progress) => {
-                let Ok(progress) = progress else {
-                    println!("Unhandled progress error");
-                    return;
-                };
-                match progress {
+            Message::Progress(result) => match result {
+                Ok(progress) => match progress {
                     ConversionProgress::Log(msg) => {
-                        self.log.perform(widget::text_editor::Action::Edit(
-                            widget::text_editor::Edit::Paste(Arc::new(msg)),
-                        ));
-                        self.log.perform(widget::text_editor::Action::Edit(
-                            widget::text_editor::Edit::Enter,
-                        ));
+                        self.log_line(&msg);
                     }
                     ConversionProgress::Count(count) => {
                         self.conv_count = Some(count);
@@ -88,11 +78,16 @@ impl Settings {
                     }
                     ConversionProgress::Done => {
                         self.running = false;
-                        self.status = format!("Klar!");
+                        self.status = "Klar!".to_owned();
                     }
+                },
+                Err(error) => {
+                    self.running = false;
+                    self.status = "Fel vid konvertering".to_owned();
+                    self.log_line("Fel:");
+                    self.log_line(&format!("{error}"));
                 }
-            }
-            Message::ConversionDone(_) => {}
+            },
             Message::EditLog(action) => {
                 // Make the text box read-only
                 if !action.is_edit() {
@@ -108,6 +103,12 @@ impl Settings {
         }
     }
 
+    fn log_line(&mut self, msg: &str) {
+        self.log.perform(widget::text_editor::Action::Edit(
+            widget::text_editor::Edit::Paste(Arc::new(format!("{msg}\n"))),
+        ));
+    }
+
     // iced doc: "Try to treat these functions as declarative, stateless functions."
     fn subscription(&self) -> Subscription<Message> {
         // Conversion::subscription
@@ -117,7 +118,7 @@ impl Settings {
             // created in convert() only gets called once.
             let convert_id = 1;
             let path = Path::new(&self.path).to_owned();
-            Subscription::run_with_id(convert_id, convert(path).map(Message::Log))
+            Subscription::run_with_id(convert_id, convert(path).map(Message::Progress))
         } else if self.selecting_file {
             let select_file_id = 2;
             Subscription::run_with_id(select_file_id, select_file())
@@ -161,11 +162,6 @@ impl Settings {
         .padding(5)
         .into()
     }
-}
-
-#[derive(Debug, Clone)]
-enum ConversionError {
-    TBD,
 }
 
 #[derive(Debug, Clone)]
@@ -245,7 +241,7 @@ impl ProgressSender {
     }
 }
 
-fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress, ConversionError>> {
+fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress, String>> {
     try_channel(1, async move |mut output| {
         let mut progress = ProgressSender {
             sender: output.clone(),
@@ -255,11 +251,11 @@ fn convert(input_path: PathBuf) -> impl Stream<Item = Result<ConversionProgress,
             .await;
         let portfolio_output = input_path.with_extension("pp-portfolio-transactions.csv");
         let account_output = input_path.with_extension("pp-account-transactions.csv");
-        let mut writer = pp::CsvWriter::new(&portfolio_output, &account_output)
-            .map_err(|e| ConversionError::TBD)?;
+        let mut writer =
+            pp::CsvWriter::new(&portfolio_output, &account_output).map_err(|e| e.to_string())?;
         avanza::convert(&input_path, &mut writer, progress.clone())
             .await
-            .map_err(|e| ConversionError::TBD)?;
+            .map_err(|e| e.to_string())?;
 
         let mut deps: Vec<_> = writer.cash_accounts().iter().collect();
         deps.sort();
