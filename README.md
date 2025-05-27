@@ -2,16 +2,18 @@
 
 A project to learn Rust and to convert CSV files from banks into [Portfolio Performance](https://www.portfolio-performance.info/) CSV format, for when the built-in conversions are not enough.
 
-## Download
+![GUI Screenshot](gui-screenshot.png)
 
-Grab the latest version from [Releases](https://github.com/thomasa88/portfolio-performance-conv/releases/latest). Choose the exe for Windows and the file with no suffix for Linux.
+## Ladda ner
+
+Hämta den senaste versionen under [Releases](https://github.com/thomasa88/portfolio-performance-conv/releases/latest). Välj exe-filen för Windows och filen utan filländelse för Linux.
 
 ## Avanza
 
-Download CSV of transactions from *Min ekonomi -> Transaktioner -> [Set date range] -> Exportera transaktioner*.
+Ladda ner din transaktioner från Avanza under *Min ekonomi -> Transaktioner -> [Set date range] -> Exportera transaktioner*.
 
-Run the converter on the CSV. You can drag & drop a file on the program on Windows.
+Kör konverteringsprogrammet och välj filen. Alternativt kan programmet köras i en terminal genom att ange filen som argument. De konverterade filerna hamnar i samma mapp som originalfilen.
 
-Manually create the security and cash/deposit accounts in Portfolio Performance.
+Skapa de listade kontona i Portfolio Performance.
 
-Import the resulting *portfolio transactions* and *account transactions* CSV files into Portfolio Performance.
+Importera de konverterade filerna under *File -> Import -> CSV files* some *portfolio transactions* respektive *account transactions*.
