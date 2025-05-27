@@ -209,7 +209,7 @@ fn main() -> anyhow::Result<()> {
             Settings::update,
             Settings::view,
         )
-        .window_size(iced::Size::new(850., 400.))
+        .window_size(iced::Size::new(850., 600.))
         .subscription(Settings::subscription)
         .run()?;
     }
