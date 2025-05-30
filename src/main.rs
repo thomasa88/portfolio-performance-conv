@@ -1,3 +1,6 @@
+// Don't pop up a terminal window alongside the GUI on Windows.
+#![windows_subsystem = "windows"]
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
