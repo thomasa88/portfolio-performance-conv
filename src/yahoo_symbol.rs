@@ -1,3 +1,4 @@
+use anyhow::Context;
 use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,11 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter},
     ops::Deref,
-    sync::atomic::{self, AtomicBool},
+    path::PathBuf,
+    sync::{
+        LazyLock,
+        atomic::{self, AtomicBool},
+    },
 };
 use tokio::{
     sync::{Mutex, RwLock, RwLockReadGuard},
@@ -15,7 +20,13 @@ use tokio::{
 
 use crate::ProgressSender;
 
-const CACHE_FILENAME: &str = "yahoo_cache.json";
+// TODO: Store dir path in main
+static CACHE_FILENAME: LazyLock<PathBuf> = LazyLock::new(|| {
+    dirs::cache_dir()
+        .unwrap()
+        .join("portfolio-performance-conv")
+        .join("yahoo_cache.json")
+});
 
 /// Performs lookups towards Yahoo Finance.
 ///
@@ -164,10 +175,11 @@ impl Yahoo {
     /// Saves the internal cache.
     ///
     /// A separate function is required since async drop is not supported.
-    pub async fn save_cache(&self) {
+    pub async fn save_cache(&self) -> anyhow::Result<()> {
         let rcache = self.cache.read().await;
-        write_cache(&rcache);
+        write_cache(&rcache)?;
         self.cache_is_dirty.store(false, atomic::Ordering::Relaxed);
+        Ok(())
     }
 }
 
@@ -204,15 +216,18 @@ async fn fetch_securities(isin: &str) -> anyhow::Result<IsinLookup> {
 }
 
 fn read_cache() -> Cache {
-    File::open(CACHE_FILENAME)
+    File::open(&*CACHE_FILENAME)
         .map(|f| serde_json::from_reader(BufReader::new(f)).expect("Bad cache format"))
         .unwrap_or_default()
 }
 
-fn write_cache(cache: &Cache) {
-    let f = File::create(CACHE_FILENAME).unwrap();
+fn write_cache(cache: &Cache) -> anyhow::Result<()> {
+    std::fs::create_dir_all(&*CACHE_FILENAME.parent().unwrap())
+        .context("Failed to create cache directory")?;
+    let f = File::create(&*CACHE_FILENAME).context("Failed to create Yahoo cache file")?;
     let writer = BufWriter::new(f);
     serde_json::to_writer_pretty(writer, &cache).unwrap();
+    Ok(())
 }
 
 #[cfg(test)]

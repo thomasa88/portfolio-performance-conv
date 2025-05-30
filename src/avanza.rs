@@ -247,7 +247,7 @@ pub async fn convert(
     // guess was wrong.
     progress.total(read_records).await;
 
-    yahoo.save_cache().await;
+    yahoo.save_cache().await?;
     Ok(())
 }
 
